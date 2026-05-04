@@ -21,21 +21,22 @@ KEEP_SEED_IN_OUTPUT = True
 # CONFIG
 # =========================
 
-CHECKPOINT_PATH = "models/miditok_music_transformer_checkpoint.pth"
+CHECKPOINT_PATH = "models/miditok_music_transformer_checkpoint_v2.pth"
 OUTPUT_MIDI = "generated_after_training.mid"
-DATA_DIR = "maestro-v3.0.0"
+DATA_DIR = "datasets/maestro-v3.0.0"
 
-GENERATE_LENGTH = 10000
+GENERATE_LENGTH = 1000
 TEMPERATURE = 0.9
 
 # Must match training tokenizer config
 config = TokenizerConfig(
-    pitch_range=(21, 109),
+    pitch_range=(0, 127),
     beat_res={(0, 4): 8},
     num_velocities=16,
 
     use_chords=False,
     use_rests=True,
+    use_drums=True,
     use_tempos=True,
     use_time_signatures=True,
 

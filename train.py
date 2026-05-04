@@ -17,7 +17,7 @@ from miditok import REMI, TokenizerConfig, TokSequence
 # CONFIG
 # =========================
 
-DATA_DIR = "maestro-v3.0.0"
+DATA_DIR = "datasets/YM2413-MDB-v1.0.0/midi/adjust_tempo_remove_delayed_inst"
 MODEL_DIR = "models"
 os.makedirs(MODEL_DIR, exist_ok=True)
 
@@ -52,13 +52,14 @@ print("Using device:", DEVICE)
 # =========================
 
 config = TokenizerConfig(
-    pitch_range=(21, 109),       # piano range
+    pitch_range=(0, 127),       # piano range
     beat_res={(0, 4): 8},        # 8 positions per beat
     num_velocities=16,
 
     # REMI / REMI+ style options
     use_chords=False,
     use_rests=True,
+    use_drums=True,
     use_tempos=True,
     use_time_signatures=True,
 
@@ -376,7 +377,7 @@ checkpoint = {
     "mask_id": mask_id,
 }
 
-torch.save(checkpoint, os.path.join(MODEL_DIR, "miditok_music_transformer_checkpoint.pth"))
+torch.save(checkpoint, os.path.join(MODEL_DIR, "miditok_music_transformer_checkpoint_v2.pth"))
 print("Saved checkpoint.")
 
 

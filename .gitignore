@@ -181,5 +181,6 @@ cython_debug/
 .cursorindexingignore
 .DS_Store
 
-maestro-v3.0.0/
+datasets/
+models/
 samples/

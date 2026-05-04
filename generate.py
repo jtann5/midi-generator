@@ -11,7 +11,7 @@ from torch.utils.data import Dataset, DataLoader
 
 
 # ====== CONFIG ======
-DATA_DIR = "maestro-v3.0.0"   # <-- change this if needed
+DATA_DIR = "datasets/maestro-v3.0.0"  # <-- change this if needed
 MAX_FILES = 50                # keep small for fast demo
 MAX_NOTES_PER_FILE = 400
 SEQ_LEN = 64
