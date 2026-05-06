@@ -2,6 +2,7 @@
 
 import argparse
 import os
+import re
 
 import torch
 import torch.nn as nn
@@ -16,24 +17,44 @@ from src.dataset import (
 )
 from src.transformer import MusicTransformer
 from src.checkpoint import save_checkpoint
-from src.config import make_experiment_config, save_config, prepare_model_dir, update_config
+from src.config import make_experiment_config, save_config, prepare_model_dir, update_config, load_config
 from src.tokenizer_profiles import (
     create_tokenizer_from_profile,
     save_tokenizer_profile,
+    load_tokenizer_from_model_dir,
 )
 from src.tokenizer_utils import get_special_token_ids
 from src.model_profiles import get_model_profile, get_generation_profile
+
+
+def infer_epoch_from_checkpoint_path(checkpoint_path):
+    """
+    Infer completed epoch number from checkpoint filename.
+
+    Example:
+        checkpoint_epoch_012.pt -> 12
+        checkpoint.pt -> 0
+    """
+    filename = os.path.basename(checkpoint_path)
+
+    match = re.search(r"checkpoint_epoch_(\d+)\.pt$", filename)
+
+    if match is None:
+        return 0
+
+    return int(match.group(1))
 
 
 def parse_training_args():
     parser = argparse.ArgumentParser()
 
     parser.add_argument("--model-name", type=str, default=None)
-    parser.add_argument("--model-profile", type=str, default="small_seq256")
-    parser.add_argument("--generation-profile", type=str, default="balanced")
+    parser.add_argument("--model-profile", type=str, default=None)
+    parser.add_argument("--generation-profile", type=str, default=None)
 
-    parser.add_argument("--max-files", type=int, default=500)
+    parser.add_argument("--max-files", type=int, default=None)
     parser.add_argument("--overwrite", action="store_true")
+    parser.add_argument("--resume-checkpoint", type=str, default=None)
 
     # Optional overrides. If left as None, profile values are used.
     parser.add_argument("--seq-len", type=int, default=None)
@@ -51,6 +72,46 @@ def parse_training_args():
     return parser.parse_args()
 
 
+def validate_resume_args(args):
+    if args.resume_checkpoint is None:
+        return
+
+    incompatible_flags = []
+
+    disallowed = {
+        "--model-name": args.model_name,
+        "--model-profile": args.model_profile,
+        "--generation-profile": args.generation_profile,
+        "--max-files": args.max_files,
+        "--overwrite": args.overwrite if args.overwrite else None,
+        "--seq-len": args.seq_len,
+        "--chunk-stride": args.chunk_stride,
+        "--batch-size": args.batch_size,
+        "--lr": args.lr,
+        "--d-model": args.d_model,
+        "--nhead": args.nhead,
+        "--num-layers": args.num_layers,
+        "--ff-dim": args.ff_dim,
+        "--dropout": args.dropout,
+    }
+
+    for flag_name, value in disallowed.items():
+        if value is not None:
+            incompatible_flags.append(flag_name)
+
+    if incompatible_flags:
+        flags = ", ".join(incompatible_flags)
+        raise ValueError(
+            "In resume mode, the saved config.json is the source of truth.\n"
+            f"Remove these incompatible flags: {flags}\n\n"
+            "Use:\n"
+            "  python train_maestro.py "
+            "--resume-checkpoint models/<model_name>/checkpoint_epoch_012.pt\n\n"
+            "Allowed override:\n"
+            "  --epochs <new_total_epochs>"
+        )
+
+
 def run_training(
     *,
     data_dir,
@@ -61,43 +122,94 @@ def run_training(
 ):
     args = parse_training_args()
 
-    model_profile_name = args.model_profile
-    generation_profile_name = args.generation_profile
+    is_resuming = args.resume_checkpoint is not None
 
-    model_profile = get_model_profile(model_profile_name)
-    generation_profile = get_generation_profile(generation_profile_name)
+    if is_resuming:
+        validate_resume_args(args)
+    else:
+        # Default values
+        if args.model_profile is None:
+            args.model_profile = "small_seq256"
 
-    model_name = (
-        args.model_name
-        if args.model_name is not None
-        else f"{default_model_prefix}_{model_profile_name}_v1"
-    )
+        if args.generation_profile is None:
+            args.generation_profile = "balanced"
 
-    model_dir = f"models/{model_name}"
+        if args.max_files is None:
+            args.max_files = 500
+
+    if is_resuming:
+        model_profile_name = None
+        generation_profile_name = None
+        model_profile = None
+        generation_profile = None
+    else:
+        model_profile_name = args.model_profile
+        generation_profile_name = args.generation_profile
+
+        model_profile = get_model_profile(model_profile_name)
+        generation_profile = get_generation_profile(generation_profile_name)
+
+    if args.resume_checkpoint is not None and args.model_name is None:
+        model_dir = os.path.dirname(args.resume_checkpoint)
+        model_name = os.path.basename(model_dir)
+    else:
+        model_name = (
+            args.model_name
+            if args.model_name is not None
+            else f"{default_model_prefix}_{model_profile_name}_v1"
+        )
+        model_dir = f"models/{model_name}"
+
     checkpoint_filename = "checkpoint.pt"
     checkpoint_path = os.path.join(model_dir, checkpoint_filename)
 
     overwrite_model_dir = args.overwrite
-    max_files = args.max_files
 
-    seq_len = args.seq_len if args.seq_len is not None else model_profile["seq_len"]
-    chunk_stride = args.chunk_stride if args.chunk_stride is not None else seq_len // 2
-    batch_size = args.batch_size if args.batch_size is not None else model_profile["batch_size"]
-    epochs = args.epochs if args.epochs is not None else model_profile["epochs"]
-    lr = args.lr if args.lr is not None else model_profile["learning_rate"]
+    if is_resuming:
+        saved_config = load_config(model_dir)
+        max_files = saved_config["dataset"]["max_files"]
+        seq_len = saved_config["training"]["seq_len"]
+        chunk_stride = saved_config["training"]["chunk_stride"]
+        batch_size = saved_config["training"]["batch_size"]
+        epochs = saved_config["training"]["epochs"]
+        lr = saved_config["training"]["learning_rate"]
+        d_model = saved_config["model"]["d_model"]
+        nhead = saved_config["model"]["nhead"]
+        num_layers = saved_config["model"]["num_layers"]
+        ff_dim = saved_config["model"]["ff_dim"]
+        dropout = saved_config["model"]["dropout"]
+        generate_length = saved_config["generation_defaults"]["generate_length"]
+        temperature = saved_config["generation_defaults"]["temperature"]
+        top_k = saved_config["generation_defaults"]["top_k"]
+        top_p = saved_config["generation_defaults"]["top_p"]
+        repetition_penalty = saved_config["generation_defaults"]["repetition_penalty"]
+        repetition_window = saved_config["generation_defaults"]["repetition_window"]
+    else:
+        max_files = args.max_files
 
-    d_model = args.d_model if args.d_model is not None else model_profile["d_model"]
-    nhead = args.nhead if args.nhead is not None else model_profile["nhead"]
-    num_layers = args.num_layers if args.num_layers is not None else model_profile["num_layers"]
-    ff_dim = args.ff_dim if args.ff_dim is not None else model_profile["ff_dim"]
-    dropout = args.dropout if args.dropout is not None else model_profile["dropout"]
+        seq_len = args.seq_len if args.seq_len is not None else model_profile["seq_len"]
+        chunk_stride = args.chunk_stride if args.chunk_stride is not None else seq_len // 2
+        batch_size = args.batch_size if args.batch_size is not None else model_profile["batch_size"]
+        epochs = args.epochs if args.epochs is not None else model_profile["epochs"]
+        lr = args.lr if args.lr is not None else model_profile["learning_rate"]
 
-    generate_length = generation_profile["generate_length"]
-    temperature = generation_profile["temperature"]
-    top_k = generation_profile["top_k"]
-    top_p = generation_profile["top_p"]
-    repetition_penalty = generation_profile["repetition_penalty"]
-    repetition_window = generation_profile["repetition_window"]
+        d_model = args.d_model if args.d_model is not None else model_profile["d_model"]
+        nhead = args.nhead if args.nhead is not None else model_profile["nhead"]
+        num_layers = args.num_layers if args.num_layers is not None else model_profile["num_layers"]
+        ff_dim = args.ff_dim if args.ff_dim is not None else model_profile["ff_dim"]
+        dropout = args.dropout if args.dropout is not None else model_profile["dropout"]
+
+        generate_length = generation_profile["generate_length"]
+        temperature = generation_profile["temperature"]
+        top_k = generation_profile["top_k"]
+        top_p = generation_profile["top_p"]
+        repetition_penalty = generation_profile["repetition_penalty"]
+        repetition_window = generation_profile["repetition_window"]
+
+    if is_resuming and args.epochs is not None:
+        print(f"Overriding resume target epochs: {epochs} -> {args.epochs}")
+
+        epochs = args.epochs
 
     print("\nResolved experiment settings:")
     print("Model name:", model_name)
@@ -135,50 +247,65 @@ def run_training(
     # SETUP
     # =========================
 
-    prepare_model_dir(model_dir, overwrite=overwrite_model_dir)
+    if is_resuming:
+        if not os.path.exists(model_dir):
+            raise FileNotFoundError(f"Model directory does not exist for resume: {model_dir}")
+
+        if not os.path.exists(args.resume_checkpoint):
+            raise FileNotFoundError(f"Resume checkpoint does not exist: {args.resume_checkpoint}")
+
+        print("Resume mode: allowing existing model directory.")
+    else:
+        prepare_model_dir(model_dir, overwrite=overwrite_model_dir)
 
     device = get_device()
     print("Using device:", device)
 
-    tokenizer = create_tokenizer_from_profile(tokenizer_profile)
-    save_tokenizer_profile(tokenizer_profile, model_dir)
 
-    config = make_experiment_config(
-        model_name=model_name,
-        dataset_name=dataset_name,
-        dataset_path=data_dir,
-        tokenizer_profile=tokenizer_profile,
-        checkpoint_filename=checkpoint_filename,
+    if is_resuming:
+        tokenizer, _ = load_tokenizer_from_model_dir(model_dir)
+        print("Resume mode: keeping existing config.json and tokenizer_profile.json.")
+    else:
+        tokenizer = create_tokenizer_from_profile(tokenizer_profile)
+        save_tokenizer_profile(tokenizer_profile, model_dir)
 
-        # Add these to make_experiment_config if you haven't yet.
-        model_profile_name=model_profile_name,
-        generation_profile_name=generation_profile_name,
+        config = make_experiment_config(
+            model_name=model_name,
+            dataset_name=dataset_name,
+            dataset_path=data_dir,
+            tokenizer_profile=tokenizer_profile,
+            checkpoint_filename=checkpoint_filename,
 
-        seq_len=seq_len,
-        batch_size=batch_size,
-        epochs=epochs,
-        learning_rate=lr,
+            # Add these to make_experiment_config if you haven't yet.
+            model_profile_name=model_profile_name,
+            generation_profile_name=generation_profile_name,
 
-        d_model=d_model,
-        nhead=nhead,
-        num_layers=num_layers,
-        ff_dim=ff_dim,
-        dropout=dropout,
+            seq_len=seq_len,
+            batch_size=batch_size,
+            epochs=epochs,
+            learning_rate=lr,
 
-        max_files=max_files,
-        chunk_stride=chunk_stride,
+            d_model=d_model,
+            nhead=nhead,
+            num_layers=num_layers,
+            ff_dim=ff_dim,
+            dropout=dropout,
 
-        generate_length=generate_length,
-        temperature=temperature,
-        top_k=top_k,
-        top_p=top_p,
-        repetition_penalty=repetition_penalty,
-        repetition_window=repetition_window,
+            max_files=max_files,
+            chunk_stride=chunk_stride,
 
-        notes=notes,
-    )
+            generate_length=generate_length,
+            temperature=temperature,
+            top_k=top_k,
+            top_p=top_p,
+            repetition_penalty=repetition_penalty,
+            repetition_window=repetition_window,
 
-    save_config(config, model_dir)
+            notes=notes,
+        )
+
+        save_config(config, model_dir)
+
 
     special_ids = get_special_token_ids(tokenizer)
     pad_id = special_ids["pad_id"]
@@ -251,21 +378,39 @@ def run_training(
     print(f"Total parameters: {total_params:,}")
     print(f"Trainable parameters: {trainable_params:,}")
 
-    update_config(
-        model_dir,
-        {
-            "parameters": {
-                "total": total_params,
-                "trainable": trainable_params,
-            }
-        },
-    )
+    if not is_resuming:
+        update_config(
+            model_dir,
+            {
+                "parameters": {
+                    "total": total_params,
+                    "trainable": trainable_params,
+                }
+            },
+        )
 
     # =========================
     # TRAINING
     # =========================
 
-    for epoch in range(epochs):
+    start_epoch = 0
+
+    if args.resume_checkpoint is not None:
+        print(f"Resuming from checkpoint: {args.resume_checkpoint}")
+
+        resume_checkpoint = torch.load(args.resume_checkpoint, map_location=device)
+
+        model.load_state_dict(resume_checkpoint["model_state_dict"])
+
+        if resume_checkpoint.get("optimizer_state_dict") is not None:
+            optimizer.load_state_dict(resume_checkpoint["optimizer_state_dict"])
+
+        start_epoch = infer_epoch_from_checkpoint_path(args.resume_checkpoint)
+
+        print(f"Resumed from epoch {start_epoch}")
+        print(f"Next epoch will be {start_epoch + 1}")
+
+    for epoch in range(start_epoch, epochs):
         model.train()
 
         total_loss = 0.0
@@ -353,5 +498,10 @@ def run_training(
     )
 
     print(f"Saved final checkpoint to {checkpoint_path}")
-    print(f"Saved config to {model_dir}/config.json")
-    print(f"Saved tokenizer profile to {model_dir}/tokenizer_profile.json")
+
+    if not is_resuming:
+        print(f"Saved config to {model_dir}/config.json")
+        print(f"Saved tokenizer profile to {model_dir}/tokenizer_profile.json")
+    else:
+        print(f"Kept existing config at {model_dir}/config.json")
+        print(f"Kept existing tokenizer profile at {model_dir}/tokenizer_profile.json")
