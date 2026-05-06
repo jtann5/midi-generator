@@ -4,7 +4,7 @@ MODEL_PROFILES = {
     "tiny_seq128": {
         "seq_len": 128,
         "batch_size": 32,
-        "epochs": 10,
+        "epochs": 20,
         "learning_rate": 3e-4,
         "d_model": 128,
         "nhead": 4,
@@ -40,7 +40,7 @@ MODEL_PROFILES = {
     "small_seq512": {
         "seq_len": 512,
         "batch_size": 8,
-        "epochs": 10,
+        "epochs": 20,
         "learning_rate": 3e-4,
         "d_model": 256,
         "nhead": 8,
