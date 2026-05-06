@@ -48,6 +48,72 @@ MODEL_PROFILES = {
         "ff_dim": 1024,
         "dropout": 0.1,
     },
+
+    # Stronger seq256 model: good next step.
+    "large_seq256": {
+        "seq_len": 256,
+        "batch_size": 16,
+        "epochs": 20,
+        "learning_rate": 3e-4,
+        "d_model": 512,
+        "nhead": 8,
+        "num_layers": 10,
+        "ff_dim": 2048,
+        "dropout": 0.1,
+    },
+
+    # Stronger but safer than full large: likely good on 16GB.
+    "medium_plus_seq256": {
+        "seq_len": 256,
+        "batch_size": 24,
+        "epochs": 20,
+        "learning_rate": 3e-4,
+        "d_model": 512,
+        "nhead": 8,
+        "num_layers": 8,
+        "ff_dim": 2048,
+        "dropout": 0.1,
+    },
+
+    # Better long-context model: useful for reducing phrase drift/repetition.
+    "medium_seq512": {
+        "seq_len": 512,
+        "batch_size": 16,
+        "epochs": 20,
+        "learning_rate": 3e-4,
+        "d_model": 384,
+        "nhead": 8,
+        "num_layers": 8,
+        "ff_dim": 1536,
+        "dropout": 0.1,
+    },
+
+    # Main “ambitious but not insane” model.
+    "large_seq512": {
+        "seq_len": 512,
+        "batch_size": 8,
+        "epochs": 20,
+        "learning_rate": 2e-4,
+        "d_model": 512,
+        "nhead": 8,
+        "num_layers": 10,
+        "ff_dim": 2048,
+        "dropout": 0.1,
+    },
+
+    # Only try if VRAM/time are still fine. Beast mode.
+    "xl_seq256": {
+        "seq_len": 256,
+        "batch_size": 8,
+        "epochs": 20,
+        "learning_rate": 2e-4,
+        "d_model": 768,
+        "nhead": 12,
+        "num_layers": 12,
+        "ff_dim": 3072,
+        "dropout": 0.1,
+
+    },
 }
 
 
