@@ -17,6 +17,8 @@ def generate_tokens(
     temperature=0.8,
     top_k=50,
     top_p=None,
+    repetition_penalty=1.08,
+    repetition_window=128,
     print_every=100,
 ):
     model.eval()
@@ -32,9 +34,19 @@ def generate_tokens(
             logits = model(input_tensor)
             next_logits = logits[:, -1, :] / temperature
 
+            # Avoid non-musical special tokens.
             for bad_id in forbidden_ids:
                 next_logits[:, bad_id] = -float("inf")
 
+            # Penalize recently repeated tokens.
+            next_logits = apply_repetition_penalty(
+                next_logits,
+                generated_ids=generated,
+                penalty=repetition_penalty,
+                window=repetition_window,
+            )
+
+            # Apply top-k / top-p filtering if you added it.
             next_logits = apply_top_k_top_p_filtering(
                 next_logits,
                 top_k=top_k,
@@ -142,5 +154,28 @@ def apply_top_k_top_p_filtering(logits, top_k=None, top_p=None):
         )
 
         logits[indices_to_remove] = -float("inf")
+
+    return logits
+
+def apply_repetition_penalty(logits, generated_ids, penalty=1.08, window=128):
+    """
+    Penalize tokens that appeared recently.
+
+    penalty > 1.0 makes repeated recent tokens less likely.
+    window controls how far back we look.
+    """
+    if penalty is None or penalty <= 1.0:
+        return logits
+
+    recent_ids = generated_ids[-window:]
+
+    for token_id in set(recent_ids):
+        # HuggingFace-style repetition penalty logic:
+        # If the logit is positive, divide it.
+        # If the logit is negative, multiply it.
+        if logits[0, token_id] > 0:
+            logits[0, token_id] /= penalty
+        else:
+            logits[0, token_id] *= penalty
 
     return logits

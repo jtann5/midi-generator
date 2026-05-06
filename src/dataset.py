@@ -60,20 +60,23 @@ def tokenize_midi_files(
     return encoded_sequences
 
 
-def build_training_chunks(encoded_sequences, seq_len):
+def build_training_chunks(encoded_sequences, seq_len, stride=None):
+    if stride is None:
+        stride = seq_len // 2
+
     X = []
     Y = []
 
     for seq in encoded_sequences:
-        for i in range(len(seq) - seq_len):
+        for i in range(0, len(seq) - seq_len, stride):
             x_chunk = seq[i:i + seq_len]
             y_chunk = seq[i + 1:i + seq_len + 1]
 
             X.append(x_chunk)
             Y.append(y_chunk)
 
-    X = np.array(X, dtype=np.int64)
-    Y = np.array(Y, dtype=np.int64)
+    X = np.array(X, dtype=np.int32)
+    Y = np.array(Y, dtype=np.int32)
 
     return X, Y
 
