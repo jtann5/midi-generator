@@ -49,7 +49,6 @@ MODEL_PROFILES = {
         "dropout": 0.1,
     },
 
-    # Stronger seq256 model: good next step.
     "large_seq256": {
         "seq_len": 256,
         "batch_size": 16,
@@ -62,7 +61,6 @@ MODEL_PROFILES = {
         "dropout": 0.1,
     },
 
-    # Stronger but safer than full large: likely good on 16GB.
     "medium_plus_seq256": {
         "seq_len": 256,
         "batch_size": 24,
@@ -75,7 +73,6 @@ MODEL_PROFILES = {
         "dropout": 0.1,
     },
 
-    # Better long-context model: useful for reducing phrase drift/repetition.
     "medium_seq512": {
         "seq_len": 512,
         "batch_size": 16,
@@ -88,7 +85,6 @@ MODEL_PROFILES = {
         "dropout": 0.1,
     },
 
-    # Main “ambitious but not insane” model.
     "large_seq512": {
         "seq_len": 512,
         "batch_size": 8,
@@ -101,7 +97,18 @@ MODEL_PROFILES = {
         "dropout": 0.1,
     },
 
-    # Only try if VRAM/time are still fine. Beast mode.
+    "small_seq1024": {
+        "seq_len": 1024,
+        "batch_size": 8,
+        "epochs": 20,
+        "learning_rate": 2e-4,
+        "d_model": 256,
+        "nhead": 8,
+        "num_layers": 6,
+        "ff_dim": 1024,
+        "dropout": 0.1,
+    },
+
     "xl_seq256": {
         "seq_len": 256,
         "batch_size": 8,
