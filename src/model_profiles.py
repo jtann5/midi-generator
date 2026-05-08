@@ -119,7 +119,6 @@ MODEL_PROFILES = {
         "num_layers": 12,
         "ff_dim": 3072,
         "dropout": 0.1,
-
     },
 }
 
